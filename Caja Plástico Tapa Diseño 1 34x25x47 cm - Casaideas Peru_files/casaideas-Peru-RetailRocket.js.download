@@ -1,0 +1,198 @@
+/*ult modif: 2021-02-15  9:45am*/
+var producto = {
+    productId: "",
+    productName: "",
+    productPrice: "",
+    productOldprice: "",
+    productImage: "",
+    productURL: "",
+    productAvailable: "",
+    productCategoryPath: "",
+    productDescription: "",
+    productVendor: "",
+    products: new Set(),
+    items: new Object(),
+    sizes_available: new Object(),
+    similares: new Object(),
+    colour: ""
+};
+$(window).load(function() {
+    $(function() { if ($(".produto").length > 0) { getCategory(); } });
+});
+
+function constructorObject(params, arrKey, arrValues) {
+    if (arrValues.length === 0) {
+        params = {};
+    } else {
+        for (let i = 0; i < arrValues.length; i++) {
+            let string = arrValues[i];
+            params[string] = arrKey[i];
+        }
+    }
+    return params;
+}
+// obtener categorias
+function getCategory() {
+    let arrColors = new Array();
+    vtexjs.catalog.getCurrentProductWithVariations().done(function(e) {
+        producto.productId = e.productId;
+        if ($(".product-content__sheet-right--product-similar").length > 0) {
+            let arrKeySimilars = [];
+            let arrValuesSimilars = [];
+            $(".product-content__sheet-right--product-similar").find(".product-image").each(function() {
+                value = $(this).attr("data-id");
+                key = 'data-' + value;
+                arrKeySimilars.push(value);
+                arrValuesSimilars.push(key);
+            })
+            constructorObject(producto.similares, arrKeySimilars, arrValuesSimilars);
+        }
+        if ($('.price-list-price')[0]) {
+            // var listprice1 = $('.price-list-price')[0].innerText.trim().replace('$ ', '');
+            // producto.productOldprice = listprice1;
+            // let listprice_ =$('.price-list-price')[0].innerText.trim().split('/ ')[1].split('.');
+            let listprice_ = $('.price-list-price')[0].innerText.trim().split('/ ')[1];
+            // var arrlistPrice = parseInt(listprice_[0] +listprice_[1]);
+            producto.productOldprice = parseFloat(listprice_); //arrlistPrice;
+        }
+        if ($('.price-best-price')[0]) {
+            // var bestprice1 = e.skus[0].bestPriceFormated;
+            // let arrPrice = e.skus[0].bestPriceFormated.split('/ ')[1].split('.');
+            let arrPrice = parseFloat(e.skus[0].bestPriceFormated.split('/ ')[1]);
+            // var bestPrice = parseInt(arrPrice[0] +arrPrice[1]);
+            producto.productPrice = arrPrice;
+        }
+        $(".product-content__sheet-right--product-similar").find('li div.product-image').each((e, i) => {
+            arrColors.push(i.textContent);
+            return arrColors;
+        })
+        $.ajax({
+            url: '/api/catalog_system/pub/products/search/?fq=productId:' + producto.productId,
+            dataType: 'json',
+            type: 'GET',
+            crossDomain: true,
+            success: function(data) {
+                getDataSearch(data, arrColors);
+
+            }
+        });
+    });
+}
+const getDataSearch = (dataApi, valuesColors) => {
+    producto.productCategoryPath = [dataApi[0].categories[0]];
+    var u = dataApi[0].link,
+        v = u.split('/')[3];
+    producto.productDescription = dataApi[0].description;
+    producto.productImage = dataApi[0].items[0].images[0].imageUrl;
+    producto.productURL = 'https://www.casaideas.com.pe/' + v + '/p';
+    let addedDate = dataApi[0].releaseDate.slice(0, 10);
+    retail(valuesColors, addedDate);
+}
+
+function retail(arrColors, addedDate) {
+    (window["rrApiOnReady"] = window["rrApiOnReady"] || []).push(function() {
+        vtexjs.catalog.getCurrentProductWithVariations().done(function(product) {
+            let arrKeySizes = [],
+                arrValuesSizes = [];
+            console.log(product)
+            product.skus.forEach((e, i) => {
+                key = 'talla-' + i;
+                dimensionsObject = e.dimensions;
+                if (Object.keys(dimensionsObject).length === 0) {
+                    producto.sizes_available = {};
+                } else {
+                    value = dimensionsObject.Talla;
+                    e.available ? arrKeySizes.push(key) && arrValuesSizes.push(value) : '';
+                }
+            })
+            constructorObject(producto.sizes_available, arrValuesSizes, arrKeySizes);
+            producto.productId = product.productId;
+            producto.productName = product.name;
+            producto.productAvailable = product.available;
+            producto.productVendor = product.skus[0].seller;
+            var skus = product.skus.length;
+            console.log(skus);
+            var numsku = product.skus.length;
+            var sumsku = 1;
+            let ObjectParamsAlt = new Object();
+            let arrKeyParams = [];
+            let arrValuesParams = [];
+
+
+            product.skus.forEach((e, i) => {
+                let arrColorI;
+                keyParam = 'variation' + (i + 1);
+                arrKeyParams.push(keyParam);
+                if (arrColors[i] != "" && arrColors[i] != undefined) {
+                    arrColorI = arrColors[i];
+                } else { arrColorI = ''; }
+                valueParam = `${product.productId}` + ';' + `${arrColorI}` + ';' + `${e.image}` + ';' + `${dimensionsObject.Talla}` + ';' + `${e.available}`;
+                arrValuesParams.push(valueParam);
+
+                let stockItem;
+                if (dataLayer[0].skuStocks[e.sku] > 5) {
+                    stockItem = true;
+                } else {
+                    stockItem = false;
+                }
+
+                arrKeyParams.push("availableQnt");
+                arrValuesParams.push(stockItem);
+
+                if (arrValuesParams.length) {
+                    for (let i = 0; i < arrValuesParams.length; i++) {
+                        let string = arrKeyParams[i];
+                        ObjectParamsAlt[string] = arrValuesParams[i];
+                    }
+                } else {
+                    ObjectParamsAlt = {};
+                }
+                ObjectParamsAlt['addedDate'] = addedDate;
+                producto.items[e.sku] = {
+                    "isAvailable": e.available,
+                    "price": e.bestPrice / 100,
+                    "oldPrice": e.listPrice / 100,
+                    "name": e.skuname,
+                    "url": producto.productURL,
+                    "pictureUrl": e.image,
+                    "params": ObjectParamsAlt,
+                }
+            });
+
+        });
+        retailrocket.productsGroup.post({
+            "groupId": producto.productId,
+            "name": producto.productName,
+            "price": producto.productPrice,
+            "pictureUrl": producto.productImage,
+            "url": producto.productURL,
+            "isAvailable": producto.productAvailable,
+            "categoryPaths": producto.productCategoryPath,
+            "description": producto.productDescription,
+            "vendor": producto.productVendor,
+            "params": {
+                "colour": producto.colour,
+                "anotherAvailableColourIds": producto.similares,
+                "availableSizes": producto.sizes_available
+            },
+            "products": producto.items,
+            "oldPrice": producto.productOldprice,
+        });
+        //console.log(producto)
+        var skusid = skuJson.skus.map(element => {
+            return element.sku;
+        });
+        rrApi.groupView(skusid)
+    });
+    if ($('.group_0 .dimension-Talla').length > 0) {
+        $(document).on('click', '.group_0 .input-dimension-Talla', function() {
+            var a = $(".buy-button.buy-button-ref");
+            var b = $(this).attr('id').split("_")[0]
+            a.attr('onmousedown', 'try { rrApi.addToBasket("' + b + '") } catch(e) {}');
+        })
+    } else {
+        var a = $(".buy-button.buy-button-ref");
+        var b = skuJson.skus[0].sku;
+        a.attr('onmousedown', 'try { rrApi.addToBasket("' + b + '") } catch(e) {}');
+    }
+}

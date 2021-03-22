@@ -1,0 +1,17 @@
+
+				document.body.appendChild(document.createElement('snappylabs-chat')).setAttribute("bot-id", "3f9eecca-6f42-4037-9793-f9dc7a051eec");
+
+				function injectScript(src) {
+					return new Promise((resolve, reject) => {
+						const script = document.createElement('script');
+						script.async = true;
+						script.src = src;
+						script.addEventListener('load', resolve);
+						script.addEventListener('error', () => reject('Error loading script.'));
+						script.addEventListener('abort', () => reject('Script loading aborted.'));
+						document.head.appendChild(script);
+					});
+				}
+
+				injectScript("https://snappychat.snappylabs.io/snappylabs-chat.min.js");
+			

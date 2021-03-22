@@ -1,0 +1,821 @@
+﻿/// <reference path='jquery-1.4.1-vsdoc.js' />
+/// <reference path='vtex.common.js' />
+/// <reference path='vtex.jsevents.js' />
+/// <reference path='vtex.skuEvents.js' />
+/// <reference path="knockout-2.2.0.js" />
+
+/// selectedToInsert
+Array.prototype.add = function (v) {
+    this.unshift(v);
+    $.unique(this);
+};
+
+var selectedToInsert = new Array(0);
+
+function ArrayGet(key) {
+    var index = 0;
+    while (index < selectedToInsert.length) {
+        if (selectedToInsert[index] == key || selectedToInsert[index].indexOf(key + '-') === 0) {
+            return selectedToInsert[index];
+        }
+        index++;
+    }
+    return '';
+}
+
+function ArrayRemove(key) {
+    var removed = false;
+    var index = 0;
+    while ((index < selectedToInsert.length) && !removed) {
+        if (selectedToInsert[index] == key || selectedToInsert[index].indexOf(key + '-') === 0) {
+            selectedToInsert.splice(index, 1);
+            removed = true;
+        }
+        index++;
+    }
+}
+
+function ArrayContains(key) {
+    for (i = 0; i < selectedToInsert.length; i++) {
+        if (selectedToInsert[i] == key || selectedToInsert[i].indexOf(key + '-') === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+var Config;
+Config = {
+    UrlNewList: "/no-cache/giftlistv2/skutonewlist",
+    UrlExistingList: "/no-cache/giftlistv2/skutolist",
+    GetUrlContent: function (id) {
+        return $('#hdn_' + id).text();
+    },
+    Origin: function () {
+        if ($('#giftlistproduct').length > 0) {
+            return "g";
+        }
+        else if (selectedToInsert.length > 0) {
+            return "s";
+        }
+        else if ($('#giftlistproduct').length > 0) {
+            return "giftlist";
+        }
+    },
+    OriginId: function () {
+    }
+};
+
+$(document).ready(function () {
+    BindSkuDataListener();
+});
+
+$(document).ajaxStop(function () {
+    CheckThickBox();
+    BindEvents();
+    IsAuthenticated();
+
+    var qty = 0;
+    $(selectedToInsert).each(function (i) {
+        qty += parseInt(selectedToInsert[i].split('-')[1]);
+    });
+
+    updateInsertSkuSelectionCount('+', qty);
+});
+
+function IsAuthenticated() {
+    if ($('.giftlist-insertsku-must-login').length === 0) {
+        if ($('.product-insertsku').length > 0) {
+            $('.product-insertsku').removeClass('must-login');
+            $('.product-insertsku').stop(true, true).show();
+        }
+
+        return;
+    }
+
+    $('.glis-sku-listtolist').stop(true, true).slideUp('fast');
+    $('.glis-sku-single').stop(true, true).slideUp('fast');
+    $('.glis-sku-select').stop(true, true).slideUp('fast');
+    $('.product-insertsku').stop(true, true).slideUp('fast');
+}
+
+function CheckThickBox() {
+    $('.glis-thickbox').each(function (i, tb) {
+        if (!$(tb).hasClass('tb-added')) {
+            $(tb).addClass('tb-added');
+            tb_init('#' + $(tb).attr('id'));
+        }
+    });
+}
+
+function BindSkuDataListener() {
+    if ('undefined' === typeof skuEventDispatcher || 'undefined' === typeof skuDataReceivedEventName) {
+        return;
+    }
+
+    var insertSkuListener = new Vtex.JSEvents.Listener('giftListInsertSkuV2Listener', InsertSkuV2_OnSkuDataReceived);
+    skuEventDispatcher.addListener(skuDataReceivedEventName, insertSkuListener);
+}
+
+function InsertSkuV2_OnSkuDataReceived(e) {
+    if ('undefined' === typeof e || e.skuData.id < 1) {
+        return;
+    }
+
+    if ($('.glis-sku-select-checklist').length > 0) {
+        ChangeSelectedList(e);
+    }
+    else if ($('.glis-sku-single-item').length > 0) {
+        ChangeSelectedSingle(e);
+    }
+}
+
+function ChangeSelectedSingle(e) {
+    selectedToInsert = new Array(0);
+    selectedToInsert.add(e.skuData.id + '-1');
+    $('.glis-sku-single-item').removeClass('unavailable');
+    $('.glis-sku-single-item').text(e.skuData.name);
+    $('.insert-sku-quantity').val(1);
+
+
+    $('.glis-sku-single-item').fadeOut('fast', function () {
+        $('.hidden-sku-default').text(e.skuData.id);
+        if (!e.skuData.availability) {
+            $('.glis-sku-single-item').addClass('unavailable');
+        }
+    });
+    $('.glis-sku-single-item').fadeIn('slow');
+}
+
+function ChangeSelectedList(e) {
+    var ul = $('.glis-sku-select-checklist:first');
+    if ($(ul).find('.insert-sku-checkbox:checked').length < 2) {
+        selectedToInsert = new Array(0);
+        selectedToInsert.add(e.skuData.id + '-1');
+        $('.insert-sku-checkbox:checked').attr('checked', false);
+        $('.insert-sku-checkbox[rel=' + e.skuData.id + ']').attr('checked', true);
+        onInsertSkuCheckBoxClick($(ul).find('.insert-sku-checkbox[rel=' + e.skuData.id + ']:first'));
+    }
+
+    if (!e.skuData.availability) {
+        $('.insert-sku-checkbox[rel=' + e.skuData.id + ']').parent().addClass('unavailable');
+    }
+}
+
+function BindEvents() {
+    BindInsertSkuListToList();
+    BindInsertSkuCheckBox();
+    BindInsertSkuQuantity();
+    InsertQuantityKeypress();
+    InsertQuantityFocus();
+    BindInsertSkuSubmitCombo();
+    BindInsertSkuSubmitRadio();
+    BindInsertSkuSubmitList();
+    BindInsertSkuSubmitNew();
+    PreCheckSkuSelect();
+    BindSelectTypeChange();
+}
+
+function BindInsertSkuSubmitCombo() {
+    $('.glis-submit-combo').unbind("click").click(function (e) {
+        if ($('.glis-submit.clicked').length > 0) {
+            return;
+        }
+        e.stopImmediatePropagation();
+        $(this).addClass('clicked');
+
+        AddToListCombo($(this).attr('id').split('_')[1]);
+    });
+}
+
+function BindSelectTypeChange() {
+    $('.glis-newlisttype').unbind("change").change(function (e) {
+        if ($('#' + $(this).attr('id') + ' option:selected').attr('redirect') === 'true') {
+            $('.glis-new-address-info').stop(true, true).slideDown('slow');
+            $('.glis-new-info').stop(true, true).slideUp('fast');
+        }
+        else {
+            $('.glis-new-address-info').stop(true, true).slideUp('fast');
+            $('.glis-new-info').stop(true, true).slideDown('slow');
+        }
+    });
+}
+
+function BindInsertSkuSubmitRadio() {
+    $('.glis-submit-radio').unbind("click").click(function (e) {
+        if ($('.glis-submit.clicked').length > 0) {
+            return;
+        }
+        e.stopImmediatePropagation();
+        $(this).addClass('clicked');
+
+        AddToListRadio($(this).attr('id').split('_')[1]);
+    });
+}
+
+function BindInsertSkuSubmitList() {
+    $('.glis-submit-list').unbind("click").click(function (e) {
+        if ($('.glis-submit.clicked').length > 0) {
+            return;
+        }
+        e.stopImmediatePropagation();
+        $(this).addClass('clicked');
+
+        AddToList($(this).attr('id').split('_')[1]);
+    });
+}
+
+function BindInsertSkuSubmitNew() {
+    $('.glis-submit-new').unbind("click").click(function (e) {
+        if ($('.glis-submit.clicked').length > 0) {
+            return;
+        }
+        e.stopImmediatePropagation();
+        $(this).addClass('clicked');
+
+        AddToListNew(this);
+    });
+}
+
+function BindInsertSkuQuantity() {
+    $('.insert-sku-quantity').unbind('blur').blur(function (e) {
+        e.stopImmediatePropagation();
+        onChangeInsertQuantity(this);
+    });
+
+    $('.insert-sku-quantity').unbind('focus').focus(function (e) {
+        setTimeout(function () {
+            e.target.select();
+        }, 0);
+    });
+}
+
+function BindInsertSkuListToList() {
+    var checkBoxSelector = '.glis-listtolist-checkbox';
+    if ($(checkBoxSelector).length === 0) {
+        return;
+    }
+
+    if ($(checkBoxSelector).attr('addedclick') != 'yes') {
+        $(checkBoxSelector).unbind("click").click(function (e) {
+            e.stopImmediatePropagation();
+            onInsertSkuListToListClick(this);
+        });
+    }
+    $(checkBoxSelector).attr('addedclick', 'yes');
+    PreCheckInsertSkuCheckBox();
+    PreCheckInsertSkuQuantity();
+}
+
+function BindInsertSkuCheckBox() {
+    var checkBoxSelector = '.insert-sku-checkbox';
+    if ($(checkBoxSelector).length === 0) {
+        return;
+    }
+
+    if ($(checkBoxSelector).attr('addedclick') != 'yes') {
+        $(checkBoxSelector).unbind("click").click(function (e) {
+            e.stopImmediatePropagation();
+            onInsertSkuCheckBoxClick(this);
+        });
+    }
+    $(checkBoxSelector).attr('addedclick', 'yes');
+    PreCheckInsertSkuCheckBox();
+    PreCheckInsertSkuQuantity();
+}
+
+function PreCheckInsertSkuCheckBox() {
+    var checkBoxSelector = '.insert-sku-checkbox:enabled';
+    if ($(checkBoxSelector).length === 0) {
+        return;
+    }
+
+    $(checkBoxSelector).each(function (i, chk) {
+        var sid = $(chk).attr('rel');
+        chk.checked = ArrayContains(sid);
+    });
+
+    if ($('.glis-listtolist-checkbox:checked').length > 0) {
+        $('.insert-sku-checkbox').attr('disabled', 'disabled');
+    }
+}
+
+function PreCheckInsertSkuQuantity() {
+    var qtySelector = '.insert-sku-quantity';
+    if ($(qtySelector).length === 0) {
+        return;
+    }
+
+    $(qtySelector).each(function (i, qty) {
+        var checkbox = $('#chk-' + $(qty).attr('id').split('-')[1]);
+        var maxQty = 1;
+        if ($(checkbox).is(':checked')) {
+            var thisQty = ArrayGet($(checkbox).attr('rel')).split('-')[1];
+            if (thisQty > maxQty) {
+                maxQty = thisQty;
+            }
+        }
+
+        $(qty).val(maxQty);
+    });
+
+    if ($('.glis-listtolist-checkbox:checked').length > 0) {
+        $('.insert-sku-quantity').attr('disabled', 'disabled');
+    }
+}
+
+function PreCheckSkuSelect() {
+    if ($('.hidden-sku-default').length === 0) {
+        return;
+    }
+
+    var sId = $('.hidden-sku-default:first').text();
+    selectedToInsert = new Array(0);
+    var qty = $('.hidden-sku-default:first').parent().find('.insert-sku-quantity').val();
+    selectedToInsert.add(sId + '-' + qty);
+    updateInsertSkuSelectionCount('+', qty);
+}
+
+function onInsertSkuListToListClick(sender) {
+    $('.glis-listtolist-checkbox').attr('checked', sender.checked);
+    var symbol = '+';
+    var qty = 0;
+    $(selectedToInsert).each(function (i) {
+        qty += parseInt(selectedToInsert[i].split('-')[1]);
+    });
+
+    selectedToInsert = new Array(0);
+
+    if (sender.checked) {
+        $('.insert-sku-checkbox').attr('checked', true);
+        $('.insert-sku-checkbox').attr('disabled', 'disabled');
+        $('.insert-sku-quantity').attr('disabled', 'disabled');
+        qty = 0;
+        var sid = $(sender).first().val().split(',');
+        for (var i = 0; i < sid.length; i++) {
+            qty += parseInt(sid[i].split('-')[1]);
+            selectedToInsert.add(sid[i]);
+        }
+
+        $(".insert-sku-count").parent().addClass('checked');
+    }
+    else {
+        $('.insert-sku-checkbox').attr('checked', false);
+        $('.insert-sku-checkbox').removeAttr('disabled');
+        $('.insert-sku-quantity').removeAttr('disabled');
+        symbol = '-';
+
+        $(".insert-sku-count").parent().removeClass('checked');
+    }
+
+    updateInsertSkuSelectionCount(symbol, qty);
+    PreCheckInsertSkuQuantity();
+}
+
+function onInsertSkuCheckBoxClick(sender) {
+    if ($('.glis-listtolist-checkbox:checked').length > 0) {
+        return;
+    }
+
+    var id = $(sender).attr('id');
+    var sid = $(sender).attr('rel');
+    var defaultId = $(sender).attr('id').split('-')[1];
+    var qtySymbol = '+';
+
+    if (sender.checked) {
+        var qty = 1;
+        var qtyBox = $('#isq-' + defaultId);
+        if ($(qtyBox).length > 0 && !isNaN($(qtyBox).val())) {
+            $(qtyBox).stop(true, true).fadeOut('fast');
+            qty = $(qtyBox).val();
+            $(qtyBox).stop(true, true).fadeIn('slow');
+        }
+
+        if (!ArrayContains(sid)) {
+            selectedToInsert.add(sid + '-' + qty);
+        }
+
+        $("label[for='" + id + "']").addClass('checked');
+    }
+    else {
+        qtySymbol = '-';
+        qty = ArrayGet(sid).split('-')[1];
+
+        if (ArrayContains(sid)) {
+            ArrayRemove(sid);
+        }
+
+        $("label[for='" + id + "']").removeClass('checked');
+    }
+
+    updateInsertSkuSelectionCount(qtySymbol, qty);
+    var brothers = '.insert-sku-checkbox[rel={0}]'.format(sid);
+    $(brothers).attr('checked', sender.checked);
+}
+
+function onChangeInsertQuantity(sender) {
+    if ($('.glis-listtolist-checkbox:checked').length > 0) {
+        return;
+    }
+
+    var newQty = $(sender).val();
+    if (isNaN(newQty) || newQty < 1) {
+        $(sender).addClass('giftlisterror');
+        $('.insert-sku-quantity').val(1);
+        $('.glis-submit').removeClass('clicked');
+        return;
+    }
+
+    //if ($(sender).attr('multi') === 'true') {
+    //    return;
+    //}
+
+    var defaultId = $(sender).attr('id').split('-')[1];
+    var checkboxes = $('#chk-' + defaultId);
+    var span = $('.glis-sku-single-item[name=' + defaultId + ']');
+    var newQtySum = 0;
+    var oldQtySum = 0;
+    var anySelected = false;
+
+    $(checkboxes).each(function (i, chk) {
+        var sid = $(chk).attr('rel');
+        if (ArrayContains(sid) && newQty != ArrayGet(sid).split('-')[1]) {
+            oldQtySum += ArrayGet(sid).split('-')[1];
+            newQtySum += newQty;
+            ArrayRemove(sid);
+            selectedToInsert.add(sid + '-' + newQty);
+            anySelected = true;
+        }
+    });
+
+    if (span.length > 0) {
+        $('.insert-sku-quantity').val(newQty);
+
+        var sid = $('.hidden-sku-default:first').text();
+        if (ArrayContains(sid) && newQty != ArrayGet(sid).split('-')[1]) {
+            oldQtySum += ArrayGet(sid).split('-')[1];
+            newQtySum += newQty;
+            ArrayRemove(sid);
+            selectedToInsert.add(sid + '-' + newQty);
+            anySelected = true;
+        }
+    }
+
+    if (!anySelected || newQtySum === oldQtySum) {
+        $('.glis-submit').removeClass('clicked');
+        return;
+    }
+
+    $(sender).stop(true, true).fadeOut('fast');
+    if (newQtySum > oldQtySum) {
+        updateInsertSkuSelectionCount('+', (newQtySum - oldQtySum));
+    }
+    else if (newQtySum < oldQtySum) {
+        updateInsertSkuSelectionCount('-', (oldQtySum - newQtySum));
+    }
+    $(sender).stop(true, true).fadeIn('slow');
+}
+
+function updateInsertSkuSelectionCount(qtySymbol, qty) {
+    var qtyClass = (qtySymbol == '+' ? 'qty-plus' : 'qty-minus');
+
+    if ($('.glis-selected-amount').length > 0) {
+        $('.glis-selected-amount').each(function (i, span) {
+            span.innerHTML = selectedToInsert.length;
+
+            if (qty > 0) {
+                $('.glis-selected').removeClass('giftlisterror');
+                $('.glis-submit').removeClass('clicked');
+            }
+        });
+    }
+
+    if ($('.glis-flash-quantity-added').length > 0) {
+        $('.glis-flash-quantity-added').each(function (i, span) {
+            span.innerHTML = qtySymbol + qty;
+            $(span).addClass(qtyClass);
+
+            setTimeout(function () {
+                $(span).stop(true, true).fadeIn('fast');
+            }, 300);
+
+            setTimeout(function () {
+                $(span).stop(true, true).fadeOut('slow', function () {
+                    $(span).removeClass(qtyClass);
+                });
+            }, 1000);
+        });
+        
+    }
+
+    PopupCheckAmountToAdd();
+}
+
+function PopupCheckAmountToAdd() {
+    if ($('.glis-popup-link-add').length > 0 && selectedToInsert.length > 0) {
+        $('.glis-popup-link-add').stop(true, true).fadeOut('fast', function () {
+            $('.glis-popup-link').stop(true, true).fadeIn('slow');
+        });
+    }
+    else if ($('.glis-popup-link').length > 0 && selectedToInsert.length === 0) {
+        $('.glis-popup-link').stop(true, true).fadeOut('fast', function () {
+            $('.glis-popup-link-add').stop(true, true).fadeIn('slow');
+        });
+    }
+}
+
+function AddToListCombo(id) {
+    var gId = $('#' + id).find(":selected").val();
+    var name = $('#' + id).find(":selected").text();
+
+    SendData(Config.UrlExistingList, GetPostData(gId), function (data) {
+        AddedToExistingList('#' + id, data);
+    });
+}
+
+function AddToListRadio(id) {
+    var radio = $('input:radio[name=' + id + ']:checked');
+    var gId = radio.val();
+    var name = $('#for-' + radio.attr('id')).text();
+    var flashTarget = '#for-' + $(radio).attr('id');
+
+    SendData(Config.UrlExistingList, GetPostData(gId), function (data) {
+        AddedToExistingList(flashTarget, data);
+    });
+}
+
+function AddToList(id) {
+    var gId = $('#bt_' + id).attr('rel');
+    var name = $('#bt_' + id).text();
+
+    SendData(Config.UrlExistingList, GetPostData(gId), function (data) {
+        AddedToExistingList('.glis-submit-list[rel=' + gId + ']', data);
+    });
+}
+
+function AddedToExistingList(targetSelector, newData) {
+    if (newData.Success) {
+        ShowInsertedSuccess(false, newData);
+
+        FlashJustAdded(targetSelector);
+    }
+    else {
+        ShowErrorMessage(targetSelector, newData.Error);
+    }
+}
+
+function FlashJustAdded(id) {
+    if ($(id).length === 0) {
+        return;
+    }
+
+    $(id).stop(true, true).fadeOut('fast', function () {
+        $(id).addClass('updated');
+    });
+
+    $(id).stop(true, true).fadeIn();
+
+    setTimeout(function () {
+        $(id).removeClass('updated');
+    }, 6000);
+}
+
+function AddToListNew(sender) {
+    var id = $(sender).attr('rel');
+    var name = $('#new_' + id).val();
+
+    if (name.trim() === '') {
+        $('#new_' + id).addClass('giftlisterror');
+        $(sender).removeClass('clicked');
+        if (!$('#new_' + id).is(':animated')) {
+            $('#new_' + id).fadeOut('fast').fadeIn('fast');
+        }
+        return;
+    }
+
+    var ddlType = $('#glis-type_' + id).val();
+    var typeId = $('#glis-type_' + id).val();
+    var typeName = $('#glis-type_' + id + ' option:selected').text();
+    var typeRedirect = $('#glis-type_' + id + ' option:selected').attr('redirect') === 'true';
+    var addToQuantity = ($('.hidden-glis-addtoquantity').first().text() || 'true').toLowerCase() == 'true';
+
+    var postData = {
+        GiftListName: name,
+        GiftListTypeId: typeId,
+        UrlFolder: '',
+        CheckedItems: selectedToInsert,
+        AddToQuantity: addToQuantity
+    };
+
+    if (typeRedirect) {
+        var urlCreate = $('.hidden-glis-create-url').first().text();
+        urlCreate += urlCreate.indexOf('?', 0) > -1 ? '&' : '?';
+        name = encodeURIComponent(name);
+        var items = selectedToInsert.join(",");
+        var url = '{0}n={1}&t={2}&i={3}'.format(urlCreate, name, typeId, items);
+        var redirectAdd = $('.hidden-glis-address-message-add').first().text();
+
+        if (url.length > 1930) {
+            url = '{0}n={1}&t={2}'.format(urlCreate, name, typeId);
+            redirectAdd = $('.hidden-glis-address-message-noadd').first().text();
+        }
+
+        var redirectMessage = '{0} - {1}'.format($('.hidden-glis-address-message').first().text(), redirectAdd);
+
+        if (!confirm(redirectMessage)) {
+            return;
+        }
+
+        window.location.href = url;
+    }
+    else {
+        SendData(Config.UrlNewList, postData, function (data) {
+            NewListCreated(id, data);
+        });
+    }
+}
+
+function NewListCreated(id, newData) {
+    if (newData.Success) {
+        ShowInsertedSuccess(true, newData);
+
+        setTimeout(function () {
+            $('.giftlist-insertsku').each(function (i, div) {
+                NewListCreatedReload(div);
+            });
+        }, 5000);
+    }
+    else {
+        ShowErrorMessage('#glis-create_' + id, newData.Error);
+    }
+}
+
+function NewListCreatedReload(div) {
+    var divId = $(div).attr('id');
+    if (Config.GetUrlContent(divId).length === 0) {
+        return;
+    }
+
+    jQuery.ajax({
+        type: 'POST',
+        url: Config.GetUrlContent(divId),
+        data: '',
+        success: function (data) {
+            $('#' + divId).stop(true, true).fadeOut('fast');
+            $('#' + divId).html(data);
+            $('#' + divId).stop(true, true).fadeIn('slow');
+        },
+        error: function () {
+            window.top.location.href = window.top.location.href;
+        }
+    });
+}
+
+function ShowInsertedSuccess(isNew, data) {
+    $('.glis-save').stop(true, true).hide();
+    $('.glis-save').html('');
+    $('.glis-create').stop(true, true).slideUp('fast');
+
+    $('.glis-save').append('<ul>');
+    if (isNew) {
+        $('.glis-save > ul').append($('.glis-save-title-new'));
+    }
+
+    if (data.InsertedSkus > 0) {
+        var inserted = $('.glis-save-inserted')[0].outerHTML.replace('#quantidade#', data.InsertedSkus);
+        if (data.InsertedSkus > 1) {
+            inserted = inserted.replace(/\(s\)/g, 's').replace(/\(S\)/g, 'S').replace(/\(m\)/g, 'm').replace(/\(M\)/g, 'M');
+        }
+        else {
+            inserted = inserted.replace(/\(s\)/g, '').replace(/\(S\)/g, '').replace(/\(m\)/g, '').replace(/\(M\)/g, '');
+        }
+
+        $('.glis-save > ul').append(inserted);
+    }
+
+    if (data.ExistingSkus > 0) {
+        var existing = $('.glis-save-existing')[0].outerHTML.replace('#quantidade#', data.ExistingSkus);
+        if (data.ExistingSkus > 1) {
+            existing = existing.replace(/\(s\)/g, 's').replace(/\(S\)/g, 'S').replace(/\(m\)/g, 'm').replace(/\(M\)/g, 'M');
+        }
+        else {
+            existing = existing.replace(/\(s\)/g, '').replace(/\(S\)/g, '').replace(/\(m\)/g, '').replace(/\(M\)/g, '');
+        }
+        $('.glis-save > ul').append(existing);
+    }
+
+    if ($('.glis-save > ul').children('.glis-save-edit').length === 0) {
+        var editLink = $('.glis-save-edit')[0].outerHTML.replace('/giftlist/manage', $('.hidden-glis-edit-url').first().text() + '?id=' + data.GiftListId);
+        $('.glis-save > ul').append(editLink);
+    }
+
+    $('.glis-save').addClass('save-success');
+    $('.glis-save').stop(true, true).slideDown('slow');
+
+    setTimeout(function () {
+        $('.glis-save').stop(true, true).slideUp('slow', function () {
+            if (!isNew) {
+                $('.glis-create').stop(true, true).slideDown('fast');
+                $('.glis-submit').removeClass('clicked');
+            }
+
+            $('.glis-save').removeClass('save-success');
+            $('.glis-save').html('');
+        });
+    }, 6000);
+}
+
+function ShowErrorMessage(targets, message) {
+    if (targets.length === 0 || $(targets).length === 0) {
+        return;
+    }
+
+    $('.glis-save').stop(true, true).hide();
+    $('.glis-save').addClass('save-error');
+    $('.glis-save').html(message);
+    $('.glis-save').stop(true, true).fadeIn('fast');
+
+    setTimeout(function () {
+        $('.glis-save').stop(true, true).fadeOut('slow', function () {
+            $('.glis-save').removeClass('save-error');
+            $('.glis-save').html('');
+        });
+    }, (message.length * 30));
+}
+
+function AddToListCheckSelected() {
+    if (selectedToInsert.length === 0) {
+        $('.glis-selected').addClass('giftlisterror');
+        $('.glis-submit').removeClass('clicked');
+        return false;
+    }
+
+    return true;
+}
+
+function GetPostData(gId) {
+    var addToQuantity = ($('.hidden-glis-addtoquantity').first().text() || 'true').toLowerCase() == 'true';
+    return {
+        GiftListId: gId,
+        CheckedItems: selectedToInsert,
+        AddToQuantity: addToQuantity
+    };
+}
+
+function SendData(url, postData, callback) {
+    if (!AddToListCheckSelected()) {
+        return;
+    }
+
+    $.ajax({
+        type: "POST",
+        url: url,
+        dataType: "json",
+        contentType: "application/json; charset=utf-8",
+        data: ko.toJSON(postData),
+        success: function (data) {
+            if (typeof data !== "undefined") {
+                callback(data);
+            }
+        },
+        error: function (error) {
+            $('.list-form-box').html(error.responseText);
+            $('.glis-submit').removeClass('clicked');
+        }
+    });
+}
+
+function InsertQuantityKeypress() {
+    $('.insert-sku-quantity').keypress(function (e) {
+        var a = [];
+        var k = e.which;
+
+        if (k === 13) {
+            e.preventDefault();
+        }
+
+        a.push(8); // backspace
+        a.push(37); //left arrow
+        a.push(38); //up arrow
+        a.push(39); //right arrow
+        a.push(40); //down arrow
+        a.push(46); // delete
+        for (var i = 48; i < 58; i++) {// 0-9
+            a.push(i);
+        }
+        if (!(a.indexOf(k) >= 0)) {
+            e.preventDefault();
+        }
+    });
+}
+
+function InsertQuantityFocus() {
+    $('.insert-sku-quantity').focus(function (e) {
+        ClearInputError(e);
+    });
+}
+
+function ClearInputError(e) {
+    $(e).removeClass('giftlisterror');
+    $('.glis-submit').removeClass('clicked');
+}
